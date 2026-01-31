@@ -1,8 +1,10 @@
 blueprint:
-  name: "Update Entity Offset with Switch \U0001F525\U0001F321️"
-  description: Update the offset attribute of an entity based on another sensor's
-    state, with an on/off control
+  name: "Update Entity Offset with Switch 🔥🌡️ + Window Sensor"
+  description: >
+    Update the offset attribute of an entity based on another sensor's state, with an on/off control.
+    If a window sensor opens for at least 2 minutes, turn HVAC OFF; when it closes, set HVAC to AUTO.
   domain: automation
+
   input:
     sensor_to_monitor:
       name: Zigbee Sensor to Monitor
@@ -10,18 +12,31 @@ blueprint:
       selector:
         entity:
           domain:
-          - sensor
+            - sensor
           device_class:
-          - temperature
+            - temperature
           multiple: false
+
     entity_to_update:
       name: Tado Entity to Update
       description: The climate entity whose "offset" attribute will be updated
       selector:
         entity:
           domain:
-          - climate
+            - climate
           multiple: false
+
+    window_sensor:
+      name: Window Sensor
+      description: Binary sensor (preferred) or switch indicating window open/closed
+      selector:
+        entity:
+          domain:
+            - binary_sensor
+            - switch
+            - input_boolean
+          multiple: false
+
     threshold:
       name: Threshold
       description: The maximum difference between the two sensors to trigger the automation
@@ -32,14 +47,17 @@ blueprint:
           step: 0.5
           unit_of_measurement: °C
           mode: slider
+
     start_time:
       name: When the automation starts.
       selector:
         time: {}
+
     end_time:
       name: When the automation stops.
       selector:
         time: {}
+
     time_interval_minutes:
       name: Time Interval (minutes)
       description: The interval in minutes for the calibration to trigger
@@ -49,63 +67,124 @@ blueprint:
           min: 10
           max: 60
           unit_of_measurement: minutes
+
     enable_switch:
       name: Enable Automation only when Heating
       description: Enable or disable the automation only when entity is on HEAT status
       default: true
       selector:
         boolean: {}
+
   source_url: https://github.com/dllfpp/home-assistant/blob/main/temp_sensor_calibration.yaml
+
 variables:
   entity_to_update: !input entity_to_update
   sensor_to_monitor: !input sensor_to_monitor
-  current_time: '{{ now().strftime(''%H:%M'') }}'
-  friendly_name: '{{ state_attr(entity_to_update, ''friendly_name'') }}'
+  window_sensor: !input window_sensor
+  current_time: "{{ now().strftime('%H:%M') }}"
+  friendly_name: "{{ state_attr(entity_to_update, 'friendly_name') }}"
   interval: !input time_interval_minutes
   enable_switch: !input enable_switch
+
 trigger:
-- platform: time_pattern
-  minutes: "*"
-condition:
-- condition: and
-  conditions:
-  - condition: time
-    after: !input start_time
-    before: !input end_time
-  - condition: template
-    value_template: >
-      {{ (now().minute % interval | int) == 0 }}
-  - condition: or
-    conditions:
-    - condition: template
-      value_template: '{{ enable_switch == false }}'
-    - condition: and
-      conditions:
-      - condition: template
-        value_template: '{{ enable_switch == true }}'
-      - condition: state
-        entity_id: !input entity_to_update
-        attribute: hvac_action
-        state: heating
+  # Original calibration timer trigger
+  - platform: time_pattern
+    minutes: "*"
+    id: calibrate
+
+  # Window opened -> HVAC OFF (only if open/on for at least 2 minutes)
+  - platform: state
+    entity_id: !input window_sensor
+    to:
+      - "on"
+      - "open"
+    for:
+      minutes: 2
+    id: window_open
+
+  # Window closed -> HVAC AUTO (immediate)
+  - platform: state
+    entity_id: !input window_sensor
+    to:
+      - "off"
+      - "closed"
+    id: window_closed
 
 action:
-- if:
-  - condition: numeric_state
-    entity_id:
-    - !input sensor_to_monitor
-    - !input entity_to_update
-    value_template: '{{ (states(sensor_to_monitor)|float - state_attr(entity_to_update,
-      ''current_temperature'')|float)|abs }}'
-    above: !input threshold
-  then:
-  - service: tado.set_climate_temperature_offset
-    data:
-      offset: '{{( state_attr(entity_to_update, ''offset_celsius'')|float if state_attr(entity_to_update,
-        ''offset_celsius'') is not none else 0 ) + ((states(sensor_to_monitor)|float
-        - state_attr(entity_to_update, ''current_temperature'')|float) if states(sensor_to_monitor)
-        is not none and state_attr(entity_to_update, ''current_temperature'') is not
-        none else 0 ) | round(1)}}'
-    target:
-      entity_id: !input entity_to_update
+  - choose:
+      # 1) Window opened for 2 minutes -> set HVAC OFF
+      - conditions:
+          - condition: trigger
+            id: window_open
+        sequence:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: !input entity_to_update
+            data:
+              hvac_mode: "off"
+
+      # 2) Window closed -> set HVAC AUTO
+      - conditions:
+          - condition: trigger
+            id: window_closed
+        sequence:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: !input entity_to_update
+            data:
+              hvac_mode: "auto"
+
+      # 3) Scheduled calibration (your original logic) runs only on time trigger
+      - conditions:
+          - condition: trigger
+            id: calibrate
+          - condition: and
+            conditions:
+              - condition: time
+                after: !input start_time
+                before: !input end_time
+              - condition: template
+                value_template: >
+                  {{ (now().minute % interval | int) == 0 }}
+              - condition: or
+                conditions:
+                  - condition: template
+                    value_template: "{{ enable_switch == false }}"
+                  - condition: and
+                    conditions:
+                      - condition: template
+                        value_template: "{{ enable_switch == true }}"
+                      - condition: state
+                        entity_id: !input entity_to_update
+                        attribute: hvac_action
+                        state: heating
+        sequence:
+          - if:
+              - condition: numeric_state
+                entity_id:
+                  - !input sensor_to_monitor
+                  - !input entity_to_update
+                value_template: >
+                  {{ (states(sensor_to_monitor)|float - state_attr(entity_to_update,'current_temperature')|float)|abs }}
+                above: !input threshold
+            then:
+              - service: tado.set_climate_temperature_offset
+                data:
+                  offset: >
+                    {{
+                      ( state_attr(entity_to_update,'offset_celsius')|float
+                        if state_attr(entity_to_update,'offset_celsius') is not none else 0
+                      )
+                      +
+                      (
+                        (states(sensor_to_monitor)|float - state_attr(entity_to_update,'current_temperature')|float)
+                        if states(sensor_to_monitor) is not none and state_attr(entity_to_update,'current_temperature') is not none
+                        else 0
+                      )
+                      | round(1)
+                    }}
+                target:
+                  entity_id: !input entity_to_update
+
 trace:
-  stored_traces: 120
+  stored_traces: 240
