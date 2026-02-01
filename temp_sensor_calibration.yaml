@@ -1,5 +1,5 @@
 blueprint:
-  name: "Update Entity Offset with Switch 🔥🌡️ + Window Sensor"
+  name: "TADO Hijack automatic update Entity Offset with Switch 🔥🌡️ + Window Sensor"
   description: >
     Update the offset attribute of an entity based on another sensor's state, with an on/off control.
     If a window sensor opens for at least 2 minutes, turn HVAC OFF; when it closes, set HVAC to AUTO.
@@ -198,4 +198,5 @@ action:
 
 trace:
   stored_traces: 240
+
 
