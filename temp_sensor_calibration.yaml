@@ -1,8 +1,7 @@
 blueprint:
-  name: "TADO Hijack automatic update Entity Offset with Switch 🔥🌡️ + Window Sensor"
+  name: "TADO Hijack automatic update Entity Offset with Switch 🔥🌡️"
   description: >
     Update the offset attribute of an entity based on another sensor's state, with an on/off control.
-    If a window sensor opens for at least 2 minutes, turn HVAC OFF; when it closes, set HVAC to AUTO.
   domain: automation
 
   input:
@@ -27,23 +26,12 @@ blueprint:
           multiple: false
 
     entity_to_update:
-      name: Tado Homekit offset entity
+      name: Tado Hijack offset entity
       description: The number entity for climate "offset"
       selector:
         entity:
           domain:
             - number
-          multiple: false
-          
-    window_sensor:
-      name: Window Sensor
-      description: Binary sensor (preferred) or switch indicating window open/closed
-      selector:
-        entity:
-          domain:
-            - binary_sensor
-            - switch
-            - input_boolean
           multiple: false
 
     threshold:
@@ -90,7 +78,6 @@ variables:
   climate_entity: !input climate_entity
   entity_to_update: !input entity_to_update
   sensor_to_monitor: !input sensor_to_monitor
-  window_sensor: !input window_sensor
   current_time: "{{ now().strftime('%H:%M') }}"
   friendly_name: "{{ state_attr(entity_to_update, 'friendly_name') }}"
   interval: !input time_interval_minutes
@@ -102,49 +89,8 @@ trigger:
     minutes: "*"
     id: calibrate
 
-  # Window opened -> HVAC OFF (only if open/on for at least 2 minutes)
-  - platform: state
-    entity_id: !input window_sensor
-    to:
-      - "on"
-      - "open"
-    for:
-      minutes: 2
-    id: window_open
-
-  # Window closed -> HVAC AUTO (immediate)
-  - platform: state
-    entity_id: !input window_sensor
-    to:
-      - "off"
-      - "closed"
-    id: window_closed
-
 action:
   - choose:
-      # 1) Window opened for 2 minutes -> set HVAC OFF
-      - conditions:
-          - condition: trigger
-            id: window_open
-        sequence:
-          - service: climate.set_hvac_mode
-            target:
-              entity_id: !input climate_entity
-            data:
-              hvac_mode: "off"
-
-      # 2) Window closed -> set HVAC AUTO
-      - conditions:
-          - condition: trigger
-            id: window_closed
-        sequence:
-          - service: climate.set_hvac_mode
-            target:
-              entity_id: !input climate_entity
-            data:
-              hvac_mode: "auto"
-
-      # 3) Scheduled calibration (your original logic) runs only on time trigger
       - conditions:
           - condition: trigger
             id: calibrate
@@ -198,6 +144,7 @@ action:
 
 trace:
   stored_traces: 240
+
 
 
 
