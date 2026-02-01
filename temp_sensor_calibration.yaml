@@ -87,7 +87,7 @@ blueprint:
   source_url: https://github.com/davidepanato/ha-bp-tado-hj-control/blob/main/temp_sensor_calibration.yaml
 
 variables:
-  climate_entity: !climate_entity
+  climate_entity: !input climate_entity
   entity_to_update: !input entity_to_update
   sensor_to_monitor: !input sensor_to_monitor
   window_sensor: !input window_sensor
@@ -198,5 +198,6 @@ action:
 
 trace:
   stored_traces: 240
+
 
 
