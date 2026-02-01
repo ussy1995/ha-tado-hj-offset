@@ -61,7 +61,7 @@ blueprint:
       default: 15
       selector:
         number:
-          min: 10
+          min: 1
           max: 60
           unit_of_measurement: minutes
 
@@ -141,6 +141,7 @@ action:
 
 trace:
   stored_traces: 240
+
 
 
 
