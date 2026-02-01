@@ -17,15 +17,24 @@ blueprint:
             - temperature
           multiple: false
 
-    entity_to_update:
-      name: Tado Entity to Update
-      description: The climate entity whose "offset" attribute will be updated
+    climate_entity:
+      name: Tado Homekit Entity
+      description: The homekit TADO climate entity
       selector:
         entity:
           domain:
             - climate
           multiple: false
 
+    entity_to_update:
+      name: Tado Homekit offset entity
+      description: The number entity for climate "offset"
+      selector:
+        entity:
+          domain:
+            - number
+          multiple: false
+          
     window_sensor:
       name: Window Sensor
       description: Binary sensor (preferred) or switch indicating window open/closed
@@ -75,9 +84,10 @@ blueprint:
       selector:
         boolean: {}
 
-  source_url: https://github.com/dllfpp/home-assistant/blob/main/temp_sensor_calibration.yaml
+  source_url: https://github.com/davidepanato/ha-bp-tado-hj-control/blob/main/temp_sensor_calibration.yaml
 
 variables:
+  climate_entity: !climate_entity
   entity_to_update: !input entity_to_update
   sensor_to_monitor: !input sensor_to_monitor
   window_sensor: !input window_sensor
@@ -119,7 +129,7 @@ action:
         sequence:
           - service: climate.set_hvac_mode
             target:
-              entity_id: !input entity_to_update
+              entity_id: !input climate_entity
             data:
               hvac_mode: "off"
 
@@ -130,7 +140,7 @@ action:
         sequence:
           - service: climate.set_hvac_mode
             target:
-              entity_id: !input entity_to_update
+              entity_id: !input climate_entity
             data:
               hvac_mode: "auto"
 
@@ -155,7 +165,7 @@ action:
                       - condition: template
                         value_template: "{{ enable_switch == true }}"
                       - condition: state
-                        entity_id: !input entity_to_update
+                        entity_id: !input climate_entity
                         attribute: hvac_action
                         state: heating
         sequence:
@@ -163,14 +173,14 @@ action:
               - condition: numeric_state
                 entity_id:
                   - !input sensor_to_monitor
-                  - !input entity_to_update
+                  - !input climate_entity
                 value_template: >
-                  {{ (states(sensor_to_monitor)|float - state_attr(entity_to_update,'current_temperature')|float)|abs }}
+                  {{ (states(sensor_to_monitor)|float - state_attr(climate_entity,'current_temperature')|float)|abs }}
                 above: !input threshold
             then:
-              - service: tado.set_climate_temperature_offset
+              - service: number.set_value
                 data:
-                  offset: >
+                  value: >
                     {{
                       ( state_attr(entity_to_update,'offset_celsius')|float
                         if state_attr(entity_to_update,'offset_celsius') is not none else 0
@@ -188,3 +198,4 @@ action:
 
 trace:
   stored_traces: 240
+
