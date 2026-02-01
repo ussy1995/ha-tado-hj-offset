@@ -78,15 +78,13 @@ variables:
   climate_entity: !input climate_entity
   entity_to_update: !input entity_to_update
   sensor_to_monitor: !input sensor_to_monitor
-  current_time: "{{ now().strftime('%H:%M') }}"
-  friendly_name: "{{ state_attr(entity_to_update, 'friendly_name') }}"
   interval: !input time_interval_minutes
   enable_switch: !input enable_switch
 
 trigger:
   # Original calibration timer trigger
   - platform: time_pattern
-    minutes: "*"
+    minutes: "/1"
     id: calibrate
 
 action:
@@ -119,7 +117,6 @@ action:
               - condition: numeric_state
                 entity_id:
                   - !input sensor_to_monitor
-                  - !input climate_entity
                 value_template: >
                   {{ (states(sensor_to_monitor)|float - state_attr(climate_entity,'current_temperature')|float)|abs }}
                 above: !input threshold
@@ -128,13 +125,13 @@ action:
                 data:
                   value: >
                     {{
-                      ( state_attr(entity_to_update,'offset_celsius')|float
-                        if state_attr(entity_to_update,'offset_celsius') is not none else 0
+                      ( states(entity_to_update)|float
+                        if states(entity_to_update) is not none else 0
                       )
                       +
                       (
-                        (states(sensor_to_monitor)|float - state_attr(entity_to_update,'current_temperature')|float)
-                        if states(sensor_to_monitor) is not none and state_attr(entity_to_update,'current_temperature') is not none
+                        (states(sensor_to_monitor)|float - state_attr(climate_entity,'current_temperature')|float)
+                        if states(sensor_to_monitor) is not none and state_attr(climate_entity,'current_temperature') is not none
                         else 0
                       )
                       | round(1)
@@ -144,6 +141,7 @@ action:
 
 trace:
   stored_traces: 240
+
 
 
 
