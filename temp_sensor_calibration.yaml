@@ -83,7 +83,7 @@ variables:
 
 trigger:
   # Original calibration timer trigger
-  - platform: time_pattern
+  - trigger: time_pattern
     minutes: "/1"
     id: calibrate
 
@@ -141,6 +141,7 @@ action:
 
 trace:
   stored_traces: 240
+
 
 
 
