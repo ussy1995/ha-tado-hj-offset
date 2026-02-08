@@ -103,6 +103,23 @@ cards:
     entity: button.kitchen_tado_manual_calibrate
     tap_action:
       action: toggle
+
+#### Option B: Compact List
+type: entities
+title: TADO Manual Calibration
+entities:
+  - entity: button.living_room_tado_manual_calibrate
+    name: Living Room
+    icon: mdi:sofa
+  - entity: button.bedroom_tado_manual_calibrate
+    name: Bedroom
+    icon: mdi:bed
+  - entity: button.kitchen_tado_manual_calibrate
+    name: Kitchen
+    icon: mdi:fridge
+  - entity: button.office_tado_manual_calibrate
+    name: Office
+    icon: mdi:desk
   - type: button
     name: Office
     icon: mdi:desk
