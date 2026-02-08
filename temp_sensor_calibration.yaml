@@ -1,7 +1,7 @@
 blueprint:
-  name: "TADO Hijack automatic update Entity Offset with Switch 🔥🌡️"
+  name: "TADO Hijack automatic update Entity Offset with Switch + Manual Push"
   description: >
-    Update the offset attribute of an entity based on another sensor's state, with an on/off control.
+    Update the offset attribute of an entity based on another sensor's state, with an on/off control and optional manual push button. Optimized to run only at specified intervals instead of every minute. 
   domain: automation
 
   input:
@@ -34,6 +34,17 @@ blueprint:
             - number
           multiple: false
 
+    manual_trigger:
+      name: Manual Push Button (Optional)
+      description: A button or input_button entity to manually trigger calibration immediately, bypassing time and interval restrictions
+      default: {}
+      selector:
+        entity:
+          domain:
+            - button
+            - input_button
+          multiple: false
+
     threshold:
       name: Threshold
       description: The maximum difference between the two sensors to trigger the automation
@@ -46,24 +57,47 @@ blueprint:
           mode: slider
 
     start_time:
-      name: When the automation starts.
+      name: When the automation starts
       selector:
         time: {}
 
     end_time:
-      name: When the automation stops.
+      name: When the automation stops
       selector:
         time: {}
 
     time_interval_minutes:
-      name: Time Interval (minutes)
-      description: The interval in minutes for the calibration to trigger
-      default: 15
+      name: Time Interval
+      description: How often to run the calibration check
+      default: "/15"
       selector:
-        number:
-          min: 1
-          max: 60
-          unit_of_measurement: minutes
+        select:
+          options:
+            - label: "Every 5 minutes"
+              value: "/5"
+            - label: "Every 10 minutes"
+              value: "/10"
+            - label: "Every 15 minutes"
+              value: "/15"
+            - label: "Every 20 minutes"
+              value: "/20"
+            - label: "Every 25 minutes"
+              value: "/25"
+            - label: "Every 30 minutes"
+              value: "/30"
+            - label: "Every 35 minutes"
+              value: "/35"
+            - label: "Every 40 minutes"
+              value: "/40"
+            - label: "Every 45 minutes"
+              value: "/45"
+            - label: "Every 50 minutes"
+              value: "/50"
+            - label: "Every 55 minutes"
+              value: "/55"
+            - label: "Every 60 minutes"
+              value: "/60"
+          mode: dropdown
 
     enable_switch:
       name: Enable Automation only when Heating
@@ -78,17 +112,65 @@ variables:
   climate_entity: !input climate_entity
   entity_to_update: !input entity_to_update
   sensor_to_monitor: !input sensor_to_monitor
-  interval: !input time_interval_minutes
   enable_switch: !input enable_switch
 
 trigger:
-  # Original calibration timer trigger
+  # Automatic calibration at specified intervals (efficient - only runs when needed)
   - trigger: time_pattern
-    minutes: "/1"
+    minutes: !input time_interval_minutes
     id: calibrate
+
+  # Manual push trigger (bypasses time and interval checks)
+  - trigger: state
+    entity_id: !input manual_trigger
+    id: manual_push
 
 action:
   - choose:
+      # MANUAL PUSH - runs immediately, bypasses time/interval checks
+      - conditions:
+          - condition: trigger
+            id: manual_push
+          - condition: or
+            conditions:
+              - condition: template
+                value_template: "{{ enable_switch == false }}"
+              - condition: and
+                conditions:
+                  - condition: template
+                    value_template: "{{ enable_switch == true }}"
+                  - condition: state
+                    entity_id: !input climate_entity
+                    attribute: hvac_action
+                    state: heating
+        sequence:
+          - if:
+              - condition: numeric_state
+                entity_id:
+                  - !input sensor_to_monitor
+                value_template: >
+                  {{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0))|abs }}
+                above: !input threshold
+            then:
+              - service: number.set_value
+                data:
+                  value: >
+                    {{
+                      ( states(entity_to_update)|float(0)
+                        if states(entity_to_update) is not none else 0
+                      )
+                      +
+                      (
+                        (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0))
+                        if states(sensor_to_monitor) is not none and state_attr(climate_entity,'current_temperature') is not none
+                        else 0
+                      )
+                      | round(1)
+                    }}
+                target:
+                  entity_id: !input entity_to_update
+
+      # AUTOMATIC CALIBRATION - respects time window and runs at specified intervals
       - conditions:
           - condition: trigger
             id: calibrate
@@ -97,9 +179,6 @@ action:
               - condition: time
                 after: !input start_time
                 before: !input end_time
-              - condition: template
-                value_template: >
-                  {{ (now().minute % interval | int) == 0 }}
               - condition: or
                 conditions:
                   - condition: template
@@ -141,11 +220,3 @@ action:
 
 trace:
   stored_traces: 240
-
-
-
-
-
-
-
-
