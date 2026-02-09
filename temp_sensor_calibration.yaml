@@ -1,60 +1,62 @@
 blueprint:
   name: "TADO Hijack automatic update Entity Offset with Switch + Manual Push"
   description: >
-    Update the offset attribute of an entity based on another sensor's state, with an on/off control and optional manual push button. Optimized to run only at specified intervals instead of every minute. 
+    Update the offset attribute of an entity based on another sensor's state, with an on/off control and optional manual push button.
+    Optimized to run only at specified intervals instead of every minute, with stale-sensor failsafes.
   domain: automation
 
   input:
     sensor_to_monitor:
       name: Zigbee Sensor to Monitor
-      description: The sensor whose state will be used to update the "offset" attribute
       selector:
         entity:
-          domain:
-            - sensor
-          device_class:
-            - temperature
-          multiple: false
+          domain: sensor
+          device_class: temperature
 
     climate_entity:
       name: Tado Homekit Entity
-      description: The homekit TADO climate entity
       selector:
         entity:
-          domain:
-            - climate
-          multiple: false
+          domain: climate
 
     entity_to_update:
       name: Tado Hijack offset entity
-      description: The number entity for climate "offset"
       selector:
         entity:
-          domain:
-            - number
-          multiple: false
+          domain: number
 
     manual_trigger:
       name: Manual Push Button (Optional)
-      description: A button or input_button entity to manually trigger calibration immediately, bypassing time and interval restrictions
-      default: {}
+      description: Create as a Helper -> Input button (recommended). Leave empty to disable manual push.
+      default: ""
       selector:
         entity:
-          domain:
-            - button
-            - input_button
-          multiple: false
+          domain: input_button
+
+    manual_ignore_failsafe:
+      name: Manual push ignores failsafe (not recommended)
+      description: If enabled, manual push can run even if sensor is stale/unavailable.
+      default: false
+      selector:
+        boolean: {}
+
+    sensor_max_age_minutes:
+      name: Maximum Sensor Age (minutes)
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: minutes
 
     threshold:
       name: Threshold
-      description: The maximum difference between the two sensors to trigger the automation
       selector:
         number:
           min: 0.0
           max: 10.0
           step: 0.5
           unit_of_measurement: °C
-          mode: slider
 
     start_time:
       name: When the automation starts
@@ -68,7 +70,6 @@ blueprint:
 
     time_interval_minutes:
       name: Time Interval
-      description: How often to run the calibration check
       default: "/15"
       selector:
         select:
@@ -97,40 +98,56 @@ blueprint:
               value: "/55"
             - label: "Every 60 minutes"
               value: "/60"
-          mode: dropdown
 
     enable_switch:
       name: Enable Automation only when Heating
-      description: Enable or disable the automation only when entity is on HEAT status
       default: true
       selector:
         boolean: {}
-
-  source_url: https://github.com/davidepanato/ha-bp-tado-hj-control/blob/main/temp_sensor_calibration.yaml
 
 variables:
   climate_entity: !input climate_entity
   entity_to_update: !input entity_to_update
   sensor_to_monitor: !input sensor_to_monitor
   enable_switch: !input enable_switch
+  sensor_max_age_minutes: !input sensor_max_age_minutes
+  manual_ignore_failsafe: !input manual_ignore_failsafe
+  manual_trigger: !input manual_trigger
 
 trigger:
-  # Automatic calibration at specified intervals (efficient - only runs when needed)
   - trigger: time_pattern
     minutes: !input time_interval_minutes
     id: calibrate
 
-  # Manual push trigger (bypasses time and interval checks)
+  # Optional manual trigger: only fires if manual_trigger is set
   - trigger: state
     entity_id: !input manual_trigger
     id: manual_push
 
 action:
   - choose:
-      # MANUAL PUSH - runs immediately, bypasses time/interval checks
+      # Manual push (bypass time + interval, but keep failsafe unless overridden)
       - conditions:
           - condition: trigger
             id: manual_push
+          - condition: template
+            value_template: "{{ manual_trigger != '' }}"
+          - condition: or
+            conditions:
+              - condition: template
+                value_template: "{{ manual_ignore_failsafe }}"
+              - condition: and
+                conditions:
+                  - condition: template
+                    value_template: "{{ has_value(sensor_to_monitor) }}"
+                  - condition: template
+                    value_template: >
+                      {% set s = states[sensor_to_monitor] if states[sensor_to_monitor] is defined else none %}
+                      {% if s is none %}
+                        false
+                      {% else %}
+                        {{ ((as_timestamp(now()) - as_timestamp(s.last_updated)) / 60) <= (sensor_max_age_minutes | float(0)) }}
+                      {% endif %}
           - condition: or
             conditions:
               - condition: template
@@ -146,19 +163,18 @@ action:
         sequence:
           - if:
               - condition: numeric_state
-                entity_id:
-                  - !input sensor_to_monitor
+                entity_id: !input sensor_to_monitor
                 value_template: >
                   {{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0))|abs }}
                 above: !input threshold
             then:
               - service: number.set_value
+                target:
+                  entity_id: !input entity_to_update
                 data:
                   value: >
                     {{
-                      ( states(entity_to_update)|float(0)
-                        if states(entity_to_update) is not none else 0
-                      )
+                      (states(entity_to_update)|float(0) if states(entity_to_update) is not none else 0)
                       +
                       (
                         (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0))
@@ -167,46 +183,51 @@ action:
                       )
                       | round(1)
                     }}
-                target:
-                  entity_id: !input entity_to_update
 
-      # AUTOMATIC CALIBRATION - respects time window and runs at specified intervals
+      # Automatic calibration (failsafe always on + time window)
       - conditions:
           - condition: trigger
             id: calibrate
-          - condition: and
+          - condition: template
+            value_template: "{{ has_value(sensor_to_monitor) }}"
+          - condition: template
+            value_template: >
+              {% set s = states[sensor_to_monitor] if states[sensor_to_monitor] is defined else none %}
+              {% if s is none %}
+                false
+              {% else %}
+                {{ ((as_timestamp(now()) - as_timestamp(s.last_updated)) / 60) <= (sensor_max_age_minutes | float(0)) }}
+              {% endif %}
+          - condition: time
+            after: !input start_time
+            before: !input end_time
+          - condition: or
             conditions:
-              - condition: time
-                after: !input start_time
-                before: !input end_time
-              - condition: or
+              - condition: template
+                value_template: "{{ enable_switch == false }}"
+              - condition: and
                 conditions:
                   - condition: template
-                    value_template: "{{ enable_switch == false }}"
-                  - condition: and
-                    conditions:
-                      - condition: template
-                        value_template: "{{ enable_switch == true }}"
-                      - condition: state
-                        entity_id: !input climate_entity
-                        attribute: hvac_action
-                        state: heating
+                    value_template: "{{ enable_switch == true }}"
+                  - condition: state
+                    entity_id: !input climate_entity
+                    attribute: hvac_action
+                    state: heating
         sequence:
           - if:
               - condition: numeric_state
-                entity_id:
-                  - !input sensor_to_monitor
+                entity_id: !input sensor_to_monitor
                 value_template: >
                   {{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0))|abs }}
                 above: !input threshold
             then:
               - service: number.set_value
+                target:
+                  entity_id: !input entity_to_update
                 data:
                   value: >
                     {{
-                      ( states(entity_to_update)|float(0)
-                        if states(entity_to_update) is not none else 0
-                      )
+                      (states(entity_to_update)|float(0) if states(entity_to_update) is not none else 0)
                       +
                       (
                         (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0))
@@ -215,8 +236,6 @@ action:
                       )
                       | round(1)
                     }}
-                target:
-                  entity_id: !input entity_to_update
 
 trace:
   stored_traces: 240
