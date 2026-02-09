@@ -1,8 +1,8 @@
 blueprint:
-  name: "TADO Hijack automatic update Entity Offset with Switch + Manual Push"
+  name: "TADO Hijack automatic update Entity Offset with Manual Push"
   description: >
     Update the offset value of a Tado offset number entity based on a temperature sensor.
-    Includes: heating-only option, time window, efficient interval trigger, optional manual push,
+    Includes: time window, efficient interval trigger, optional manual push,
     stale-sensor failsafe with optional manual override, and optional debug logging.
   domain: automation
 
@@ -121,13 +121,6 @@ blueprint:
               value: "/60"
           mode: dropdown
 
-    enable_switch:
-      name: Enable Automation only when Heating
-      description: If enabled, runs only when hvac_action is 'heating'.
-      default: true
-      selector:
-        boolean: {}
-
   source_url: https://github.com/davidepanato/ha-bp-tado-hj-control/blob/main/temp_sensor_calibration.yaml
 
 mode: single
@@ -136,7 +129,6 @@ variables:
   climate_entity: !input climate_entity
   entity_to_update: !input entity_to_update
   sensor_to_monitor: !input sensor_to_monitor
-  enable_switch: !input enable_switch
   sensor_max_age_minutes: !input sensor_max_age_minutes
   manual_ignore_failsafe: !input manual_ignore_failsafe
   manual_trigger: !input manual_trigger
@@ -157,7 +149,7 @@ trigger:
 
 action:
   - choose:
-      # Manual push: bypasses threshold, time window, but keeps failsafe unless overridden
+      # Manual push: applies offset immediately (no time window, no threshold, no heating check)
       - conditions:
           - condition: trigger
             id: manual_push
@@ -179,7 +171,6 @@ action:
                       {% else %}
                         {{ ((as_timestamp(now()) - as_timestamp(s.last_updated)) / 60) <= (sensor_max_age_minutes | float(0)) }}
                       {% endif %}
-                  # Zigbee stability check: must have changed in last hour (not stuck)
                   - condition: template
                     value_template: >
                       {% set hour_ago = states[sensor_to_monitor].last_changed if states[sensor_to_monitor] is defined else none %}
@@ -188,18 +179,6 @@ action:
                       {% else %}
                         {{ (as_timestamp(now()) - as_timestamp(hour_ago)) < 3600 }}
                       {% endif %}
-          - condition: or
-            conditions:
-              - condition: template
-                value_template: "{{ enable_switch == false }}"
-              - condition: and
-                conditions:
-                  - condition: template
-                    value_template: "{{ enable_switch == true }}"
-                  - condition: state
-                    entity_id: !input climate_entity
-                    attribute: hvac_action
-                    state: heating
         sequence:
           - choose:
               - conditions:
@@ -217,7 +196,7 @@ action:
             data:
               value: "{{ delta }}"
 
-      # Automatic calibration: respects threshold, time window, and all failsafes
+      # Automatic calibration: respects threshold, time window, no heating check
       - conditions:
           - condition: trigger
             id: calibrate
@@ -231,7 +210,6 @@ action:
               {% else %}
                 {{ ((as_timestamp(now()) - as_timestamp(s.last_updated)) / 60) <= (sensor_max_age_minutes | float(0)) }}
               {% endif %}
-          # Zigbee stability check: must have changed in last hour (not stuck)
           - condition: template
             value_template: >
               {% set hour_ago = states[sensor_to_monitor].last_changed if states[sensor_to_monitor] is defined else none %}
@@ -243,18 +221,6 @@ action:
           - condition: time
             after: !input start_time
             before: !input end_time
-          - condition: or
-            conditions:
-              - condition: template
-                value_template: "{{ enable_switch == false }}"
-              - condition: and
-                conditions:
-                  - condition: template
-                    value_template: "{{ enable_switch == true }}"
-                  - condition: state
-                    entity_id: !input climate_entity
-                    attribute: hvac_action
-                    state: heating
         sequence:
           - if:
               - condition: numeric_state
@@ -281,4 +247,3 @@ action:
 
 trace:
   stored_traces: 240
-
