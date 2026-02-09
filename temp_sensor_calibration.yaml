@@ -1,62 +1,74 @@
 blueprint:
   name: "TADO Hijack automatic update Entity Offset with Switch + Manual Push"
   description: >
-    Update the offset attribute of an entity based on another sensor's state, with an on/off control and optional manual push button.
-    Optimized to run only at specified intervals instead of every minute, with stale-sensor failsafes.
+    Update the offset value of a Tado offset number entity based on a temperature sensor.
+    Includes: heating-only option, time window, efficient interval trigger, optional manual push,
+    stale-sensor failsafe with optional manual override.
   domain: automation
 
   input:
     sensor_to_monitor:
       name: Zigbee Sensor to Monitor
+      description: Temperature sensor used as the reference reading.
       selector:
         entity:
           domain: sensor
           device_class: temperature
+          multiple: false
 
     climate_entity:
       name: Tado Homekit Entity
+      description: Tado climate entity providing current_temperature and hvac_action.
       selector:
         entity:
           domain: climate
+          multiple: false
 
     entity_to_update:
       name: Tado Hijack offset entity
+      description: Number entity that represents the Tado temperature offset.
       selector:
         entity:
           domain: number
+          multiple: false
 
     manual_trigger:
       name: Manual Push Button (Optional)
-      description: Create as a Helper -> Input button (recommended). Leave empty to disable manual push.
+      description: Create as Helper → Input button. Leave empty to disable manual push.
       default: ""
       selector:
         entity:
           domain: input_button
+          multiple: false
 
     manual_ignore_failsafe:
       name: Manual push ignores failsafe (not recommended)
-      description: If enabled, manual push can run even if sensor is stale/unavailable.
+      description: If enabled, manual push can run even if the Zigbee sensor is stale/unavailable.
       default: false
       selector:
         boolean: {}
 
     sensor_max_age_minutes:
       name: Maximum Sensor Age (minutes)
-      default: 10
+      description: Block updates if the Zigbee sensor hasn't updated recently.
+      default: 15
       selector:
         number:
           min: 1
           max: 120
           unit_of_measurement: minutes
+          mode: slider
 
     threshold:
       name: Threshold
+      description: Minimum absolute temperature difference required to apply/update the offset.
       selector:
         number:
           min: 0.0
           max: 10.0
           step: 0.5
           unit_of_measurement: °C
+          mode: slider
 
     start_time:
       name: When the automation starts
@@ -70,6 +82,7 @@ blueprint:
 
     time_interval_minutes:
       name: Time Interval
+      description: How often to run the calibration check.
       default: "/15"
       selector:
         select:
@@ -98,12 +111,16 @@ blueprint:
               value: "/55"
             - label: "Every 60 minutes"
               value: "/60"
+          mode: dropdown
 
     enable_switch:
       name: Enable Automation only when Heating
+      description: If enabled, runs only when hvac_action is 'heating'.
       default: true
       selector:
         boolean: {}
+
+  source_url: https://github.com/davidepanato/ha-bp-tado-hj-control/blob/main/temp_sensor_calibration.yaml
 
 variables:
   climate_entity: !input climate_entity
@@ -119,14 +136,13 @@ trigger:
     minutes: !input time_interval_minutes
     id: calibrate
 
-  # Optional manual trigger: only fires if manual_trigger is set
   - trigger: state
     entity_id: !input manual_trigger
     id: manual_push
 
 action:
   - choose:
-      # Manual push (bypass time + interval, but keep failsafe unless overridden)
+      # Manual push: bypasses time window + interval, but keeps failsafe unless overridden
       - conditions:
           - condition: trigger
             id: manual_push
@@ -173,18 +189,9 @@ action:
                   entity_id: !input entity_to_update
                 data:
                   value: >
-                    {{
-                      (states(entity_to_update)|float(0) if states(entity_to_update) is not none else 0)
-                      +
-                      (
-                        (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0))
-                        if states(sensor_to_monitor) is not none and state_attr(climate_entity,'current_temperature') is not none
-                        else 0
-                      )
-                      | round(1)
-                    }}
+                    {{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0)) | round(1) }}
 
-      # Automatic calibration (failsafe always on + time window)
+      # Automatic calibration: failsafe always on + time window
       - conditions:
           - condition: trigger
             id: calibrate
@@ -226,16 +233,7 @@ action:
                   entity_id: !input entity_to_update
                 data:
                   value: >
-                    {{
-                      (states(entity_to_update)|float(0) if states(entity_to_update) is not none else 0)
-                      +
-                      (
-                        (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0))
-                        if states(sensor_to_monitor) is not none and state_attr(climate_entity,'current_temperature') is not none
-                        else 0
-                      )
-                      | round(1)
-                    }}
+                    {{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0)) | round(1) }}
 
 trace:
   stored_traces: 240
