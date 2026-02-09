@@ -59,9 +59,10 @@ blueprint:
           unit_of_measurement: minutes
           mode: slider
 
-    threshold:
+      threshold:
       name: Threshold
       description: Minimum absolute temperature difference required to apply/update the offset.
+      default: 0.5
       selector:
         number:
           min: 0.0
@@ -237,3 +238,4 @@ action:
 
 trace:
   stored_traces: 240
+
