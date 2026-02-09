@@ -61,7 +61,7 @@ blueprint:
 
     threshold:
       name: Threshold
-      description: Minimum absolute temperature difference required to apply/update the offset.
+      description: Minimum absolute temperature difference required to apply/update the offset (auto runs only).
       default: 0.5
       selector:
         number:
@@ -130,6 +130,9 @@ blueprint:
 
   source_url: https://github.com/davidepanato/ha-bp-tado-hj-control/blob/main/temp_sensor_calibration.yaml
 
+mode: single
+max: 1
+
 variables:
   climate_entity: !input climate_entity
   entity_to_update: !input entity_to_update
@@ -155,7 +158,7 @@ trigger:
 
 action:
   - choose:
-      # Manual push: bypasses time window + interval, but keeps failsafe unless overridden
+      # Manual push: bypasses threshold, time window, but keeps failsafe unless overridden
       - conditions:
           - condition: trigger
             id: manual_push
@@ -177,6 +180,15 @@ action:
                       {% else %}
                         {{ ((as_timestamp(now()) - as_timestamp(s.last_updated)) / 60) <= (sensor_max_age_minutes | float(0)) }}
                       {% endif %}
+                  # Zigbee stability check: must have changed in last hour (not stuck)
+                  - condition: template
+                    value_template: >
+                      {% set hour_ago = states[sensor_to_monitor].last_changed if states[sensor_to_monitor] is defined else none %}
+                      {% if hour_ago is none %}
+                        false
+                      {% else %}
+                        {{ (as_timestamp(now()) - as_timestamp(hour_ago)) < 3600 }}
+                      {% endif %}
           - condition: or
             conditions:
               - condition: template
@@ -190,30 +202,23 @@ action:
                     attribute: hvac_action
                     state: heating
         sequence:
-          - if:
-              - condition: numeric_state
-                entity_id: !input sensor_to_monitor
-                value_template: >
-                  {{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0))|abs }}
-                above: !input threshold
-            then:
-              - choose:
-                  - conditions:
-                      - condition: template
-                        value_template: "{{ debug_logging }}"
-                    sequence:
-                      - service: logbook.log
-                        data:
-                          name: "Tado offset debug"
-                          message: >
-                            Manual push. Zigbee={{ zigbee_temp }}, Tado={{ tado_temp }}, Delta={{ delta }}
-              - service: number.set_value
-                target:
-                  entity_id: !input entity_to_update
-                data:
-                  value: "{{ delta }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ debug_logging }}"
+                sequence:
+                  - service: logbook.log
+                    data:
+                      name: "Tado offset debug"
+                      message: >
+                        Manual push. Zigbee={{ zigbee_temp }}, Tado={{ tado_temp }}, Delta={{ delta }}
+          - service: number.set_value
+            target:
+              entity_id: !input entity_to_update
+            data:
+              value: "{{ delta }}"
 
-      # Automatic calibration: failsafe always on + time window
+      # Automatic calibration: respects threshold, time window, and all failsafes
       - conditions:
           - condition: trigger
             id: calibrate
@@ -226,6 +231,15 @@ action:
                 false
               {% else %}
                 {{ ((as_timestamp(now()) - as_timestamp(s.last_updated)) / 60) <= (sensor_max_age_minutes | float(0)) }}
+              {% endif %}
+          # Zigbee stability check: must have changed in last hour (not stuck)
+          - condition: template
+            value_template: >
+              {% set hour_ago = states[sensor_to_monitor].last_changed if states[sensor_to_monitor] is defined else none %}
+              {% if hour_ago is none %}
+                false
+              {% else %}
+                {{ (as_timestamp(now()) - as_timestamp(hour_ago)) < 3600 }}
               {% endif %}
           - condition: time
             after: !input start_time
@@ -260,10 +274,6 @@ action:
                           name: "Tado offset debug"
                           message: >
                             Auto run. Zigbee={{ zigbee_temp }}, Tado={{ tado_temp }}, Delta={{ delta }}
-                      - service: logbook.log
-                        data:
-                          name: "Offset service call"
-                          message: "About to set offset to: {{ delta }}. Current offset: {{ states(entity_to_update) }}"
               - service: number.set_value
                 target:
                   entity_id: !input entity_to_update
@@ -272,4 +282,3 @@ action:
 
 trace:
   stored_traces: 240
-
