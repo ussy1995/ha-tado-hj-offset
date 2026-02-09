@@ -2,6 +2,7 @@ blueprint:
   name: "TADO Hijack automatic update Entity Offset with Manual Push"
   description: >
     Update the offset value of a Tado offset number entity based on a temperature sensor.
+    Uses cumulative offset calculation: new_offset = current_offset + (zigbee - tado_display).
     Includes: time window, efficient interval trigger, optional manual push,
     stale-sensor failsafe with optional manual override, and optional debug logging.
   domain: automation
@@ -18,7 +19,7 @@ blueprint:
 
     climate_entity:
       name: Tado Homekit Entity
-      description: Tado climate entity providing current_temperature and hvac_action.
+      description: Tado climate entity providing current_temperature.
       selector:
         entity:
           domain: climate
@@ -73,7 +74,7 @@ blueprint:
 
     debug_logging:
       name: Debug logging
-      description: If enabled, writes a logbook entry showing Zigbee temp, Tado temp, and computed delta.
+      description: If enabled, writes a logbook entry showing Zigbee temp, Tado temp, current offset, delta, and new offset.
       default: false
       selector:
         boolean: {}
@@ -134,9 +135,11 @@ variables:
   manual_trigger: !input manual_trigger
   debug_logging: !input debug_logging
 
-  zigbee_temp: "{{ states(sensor_to_monitor) }}"
-  tado_temp: "{{ state_attr(climate_entity, 'current_temperature') }}"
-  delta: "{{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0)) | round(1) }}"
+  zigbee_temp: "{{ states(sensor_to_monitor) | float(0) }}"
+  tado_display_temp: "{{ state_attr(climate_entity, 'current_temperature') | float(0) }}"
+  current_offset: "{{ states(entity_to_update) | float(0) }}"
+  delta: "{{ (zigbee_temp - tado_display_temp) | round(1) }}"
+  new_offset: "{{ (current_offset + delta) | round(1) }}"
 
 trigger:
   - trigger: time_pattern
@@ -189,14 +192,14 @@ action:
                     data:
                       name: "Tado offset debug"
                       message: >
-                        Manual push. Zigbee={{ zigbee_temp }}, Tado={{ tado_temp }}, Delta={{ delta }}
+                        Manual push. Zigbee={{ zigbee_temp }}, Tado={{ tado_display_temp }}, CurrentOffset={{ current_offset }}, Delta={{ delta }}, NewOffset={{ new_offset }}
           - service: number.set_value
             target:
               entity_id: !input entity_to_update
             data:
-              value: "{{ delta }}"
+              value: "{{ new_offset }}"
 
-      # Automatic calibration: respects threshold, time window, no heating check
+      # Automatic calibration: respects threshold, time window
       - conditions:
           - condition: trigger
             id: calibrate
@@ -238,12 +241,12 @@ action:
                         data:
                           name: "Tado offset debug"
                           message: >
-                            Auto run. Zigbee={{ zigbee_temp }}, Tado={{ tado_temp }}, Delta={{ delta }}
+                            Auto run. Zigbee={{ zigbee_temp }}, Tado={{ tado_display_temp }}, CurrentOffset={{ current_offset }}, Delta={{ delta }}, NewOffset={{ new_offset }}
               - service: number.set_value
                 target:
                   entity_id: !input entity_to_update
                 data:
-                  value: "{{ delta }}"
+                  value: "{{ new_offset }}"
 
 trace:
   stored_traces: 240
