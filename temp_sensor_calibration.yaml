@@ -260,6 +260,10 @@ action:
                           name: "Tado offset debug"
                           message: >
                             Auto run. Zigbee={{ zigbee_temp }}, Tado={{ tado_temp }}, Delta={{ delta }}
+                      - service: logbook.log
+                        data:
+                          name: "Offset service call"
+                          message: "About to set offset to: {{ delta }}. Current offset: {{ states(entity_to_update) }}"
               - service: number.set_value
                 target:
                   entity_id: !input entity_to_update
@@ -268,3 +272,4 @@ action:
 
 trace:
   stored_traces: 240
+
