@@ -3,7 +3,7 @@ blueprint:
   description: >
     Update the offset value of a Tado offset number entity based on a temperature sensor.
     Includes: heating-only option, time window, efficient interval trigger, optional manual push,
-    stale-sensor failsafe with optional manual override.
+    stale-sensor failsafe with optional manual override, and optional debug logging.
   domain: automation
 
   input:
@@ -50,7 +50,7 @@ blueprint:
 
     sensor_max_age_minutes:
       name: Maximum Sensor Age (minutes)
-      description: Block updates if the Zigbee sensor hasn't updated recently.
+      description: Block updates if Zigbee sensor hasn't updated recently.
       default: 15
       selector:
         number:
@@ -59,7 +59,7 @@ blueprint:
           unit_of_measurement: minutes
           mode: slider
 
-      threshold:
+    threshold:
       name: Threshold
       description: Minimum absolute temperature difference required to apply/update the offset.
       default: 0.5
@@ -70,6 +70,13 @@ blueprint:
           step: 0.5
           unit_of_measurement: °C
           mode: slider
+
+    debug_logging:
+      name: Debug logging
+      description: If enabled, writes a logbook entry showing Zigbee temp, Tado temp, and computed delta.
+      default: false
+      selector:
+        boolean: {}
 
     start_time:
       name: When the automation starts
@@ -131,6 +138,11 @@ variables:
   sensor_max_age_minutes: !input sensor_max_age_minutes
   manual_ignore_failsafe: !input manual_ignore_failsafe
   manual_trigger: !input manual_trigger
+  debug_logging: !input debug_logging
+
+  zigbee_temp: "{{ states(sensor_to_monitor) }}"
+  tado_temp: "{{ state_attr(climate_entity, 'current_temperature') }}"
+  delta: "{{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0)) | round(1) }}"
 
 trigger:
   - trigger: time_pattern
@@ -185,12 +197,21 @@ action:
                   {{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0))|abs }}
                 above: !input threshold
             then:
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ debug_logging }}"
+                    sequence:
+                      - service: logbook.log
+                        data:
+                          name: "Tado offset debug"
+                          message: >
+                            Manual push. Zigbee={{ zigbee_temp }}, Tado={{ tado_temp }}, Delta={{ delta }}
               - service: number.set_value
                 target:
                   entity_id: !input entity_to_update
                 data:
-                  value: >
-                    {{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0)) | round(1) }}
+                  value: "{{ delta }}"
 
       # Automatic calibration: failsafe always on + time window
       - conditions:
@@ -229,13 +250,21 @@ action:
                   {{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0))|abs }}
                 above: !input threshold
             then:
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ debug_logging }}"
+                    sequence:
+                      - service: logbook.log
+                        data:
+                          name: "Tado offset debug"
+                          message: >
+                            Auto run. Zigbee={{ zigbee_temp }}, Tado={{ tado_temp }}, Delta={{ delta }}
               - service: number.set_value
                 target:
                   entity_id: !input entity_to_update
                 data:
-                  value: >
-                    {{ (states(sensor_to_monitor)|float(0) - state_attr(climate_entity,'current_temperature')|float(0)) | round(1) }}
+                  value: "{{ delta }}"
 
 trace:
   stored_traces: 240
-
