@@ -262,22 +262,6 @@ Auto run. Zigbee=21.6, Tado=20, CurrentOffset=0, Delta=1.6, NewOffset=1.6
 - Check automation traces for which condition failed
 - Reduce threshold to 0.3°C for more frequent updates
 
-### Heating Status Not Showing on Graph
-
-**Cause:** `hvac_action` is text, not numeric, so can't be graphed directly.
-
-**Solution:** Create a template binary sensor:
-
-**Settings → Helpers → Template Binary Sensor:**
-- **Name:** `[Room] Heating Active`
-- **State template:**
-  ```yaml
-  {{ state_attr('climate.tado_smart_radiator_thermostat_va0908283136', 'hvac_action') == 'heating' }}
-  ```
-- **Device class:** `heat`
-
-Then use `binary_sensor.[room]_heating_active` in your graph.
-
 ### Manual Button Shows "Off" / No Time Display
 
 **Cause:** Automation state is "on"/"off", not a timestamp.
